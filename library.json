@@ -1,0 +1,18 @@
+{
+  "name": "DRV8885",
+  "keywords": "stepper motor, stepper, drv8885, driver, tcc",
+  "description": "Driver for DRV8885 and similar stepper driver ICs using the SAMD21 TCC for CPU efficient stepping",
+  "url": "https://github.com/tuna-f1sh/DRV8885",
+  "include": "DRV8885",
+  "authors":
+  [
+    {
+      "name": "John Whittington" }
+  ],
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/tuna-f1sh/DRV8885"
+  },
+  "frameworks": "arduino"
+}

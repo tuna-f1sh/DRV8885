@@ -12,24 +12,26 @@
 #define DIGITAL_SET_DIRECT(x) PORT->Group[g_APinDescription[x].ulPort].OUTSET.reg = (1ul << g_APinDescription[x].ulPin)
 #define DIGITAL_CLR_DIRECT(x) PORT->Group[g_APinDescription[x].ulPort].OUTCLR.reg = (1ul << g_APinDescription[x].ulPin)
 
-volatile static uint32_t _count;
-volatile static uint32_t _stop_count;
+/* volatile static uint32_t _count; */
+/* volatile static uint32_t _stop_count; */
 static DRV8885 *pStepperMotor;
 
 // Ineterrupt handler called every time the TCC0 timer overflows (each TCC0 PWM cycle)
 void TCC0_Handler() {
   // Check for overflow (OVF) interrupt
   if (TCC0->INTFLAG.bit.OVF && TCC0->INTENSET.bit.OVF) {
+    ++(pStepperMotor->_count);
     // if the new count is greater than stop count, turn off waveform (stepping) output
-    if (++_count > _stop_count) {  
+    if ((pStepperMotor->_count > pStepperMotor->_stop_count) && !pStepperMotor->manual) {  
       pStepperMotor->_disablePinWO();
       pStepperMotor->_disableOvfInt(); // stop OVF to save processor
       pStepperMotor->_moving = false;
-      _count = _stop_count;
+      pStepperMotor->_count = pStepperMotor->_stop_count;
     // otherwise, if first OVF, enable waveform output (inverted means that the procedding cycle the IC will see edge - 1st step)
-    } else if (!PORT->Group[drv_step_port].PINCFG[drv_step_pin].reg){
+    } else if (!PORT->Group[drv_step_port].PINCFG[drv_step_pin].reg && !pStepperMotor->manual){
       pStepperMotor->_enablePinWO();
-    }
+    // if pin is cleared and we are in manual, save the count value
+    } 
 
     REG_TCC0_INTFLAG |= TC_INTFLAG_OVF;         // Clear the OVF interrupt flag
   }
@@ -151,7 +153,7 @@ inline void DRV8885::_disablePinWO(void) {
   PORT->Group[drv_step_port].PINCFG[drv_step_pin].reg = 0;
 }
 
-inline void DRV8885::_enableOvfInt(void) {
+void DRV8885::_enableOvfInt(void) {
   // only enable is not already enabled to prevent clearing valid flag
   if (!TCC0->INTENSET.bit.OVF) {
     REG_TCC0_INTFLAG |= TC_INTFLAG_OVF;               // Clear the overflow interrupt flag
@@ -159,14 +161,14 @@ inline void DRV8885::_enableOvfInt(void) {
   }
 }
 
-inline void DRV8885::_disableOvfInt(void) {
+void DRV8885::_disableOvfInt(void) {
   if (TCC0->INTENSET.bit.OVF) {
     REG_TCC0_INTENCLR |= TC_INTENCLR_OVF;           // Disable TCC0 overflow interrupt
     REG_TCC0_INTFLAG |= TC_INTFLAG_OVF;             // Clear the overflow interrupt flag
   }
 }
 
-uint32_t DRV8885::readCount() {
+uint32_t DRV8885::readTCCCount() {
   REG_TCC0_CTRLBSET = TCC_CTRLBSET_CMD_READSYNC;  // Trigger a read synchronization on the COUNT register
   while (TCC0->SYNCBUSY.bit.CTRLB);               // Wait for the CTRLB register write synchronization
   while (TCC0->SYNCBUSY.bit.COUNT);               // Wait for the COUNT register read sychronization  
@@ -186,6 +188,7 @@ void DRV8885::begin(uint16_t sps, int16_t prescaler) {
   if (_m1_pin != -1) pinMode(_m1_pin, OUTPUT); 
   if (_trq_pin != -1) pinMode(_trq_pin, OUTPUT); 
   if (_fault_pin != -1) pinMode(_fault_pin, INPUT);
+  this->setMicrostepMode(this->_stepping);
 
   // disable by default
   this->_disablePinWO();
@@ -194,7 +197,8 @@ void DRV8885::begin(uint16_t sps, int16_t prescaler) {
 }
 
 void DRV8885::move(bool direction, uint16_t steps) {
-  steps *= (uint16_t) _stepping;
+  this->manual = false;
+  /* steps *= (uint16_t) _stepping; */ // this happens at a device level?
   // enable the stepper motor
   if (direction)
     DIGITAL_SET_DIRECT(_direction_pin);
@@ -203,9 +207,9 @@ void DRV8885::move(bool direction, uint16_t steps) {
   if (_sleep_pin != -1) DIGITAL_SET_DIRECT(_sleep_pin);
   DIGITAL_SET_DIRECT(_enable_pin);
   // set to current count value + desired steps - count won't have incremented as OVF but doesn't matter as long as relative
-  _count = 0; // clear anyway
+  this->_count = 0; // clear anyway
   // steps +1 with inverted waveform means that stepping output can be enabled syncronously in OVF
-  _stop_count = _count + steps + 1;
+  this->_stop_count = this->_count + steps + 1;
   this->_enableOvfInt(); // enable OVF to disable after desired steps, while enable after first OVF, hence steps +1
   this->_direction = direction;
   this->_moving = true;
@@ -213,6 +217,7 @@ void DRV8885::move(bool direction, uint16_t steps) {
 
 void DRV8885::move(bool direction) {
   this->_disableOvfInt(); // stop OVF to prevent it disabling and run indefinately
+  this->manual = true;
   digitalWrite(_direction_pin, direction);
   if (direction)
     DIGITAL_SET_DIRECT(_direction_pin);
@@ -224,6 +229,7 @@ void DRV8885::move(bool direction) {
   this->_enablePinWO();
   this->_direction = direction;
   this->_moving = true;
+  this->_count = 0;
 }
 
 void DRV8885::step(bool direction) {

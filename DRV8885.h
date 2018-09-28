@@ -42,8 +42,8 @@ class DRV8885 {
     void setStepsSecond(uint16_t steps, uint16_t prescaler);
     inline void _enablePinWO(void);
     inline void _disablePinWO(void);
-    inline void _enableOvfInt(void);
-    inline void _disableOvfInt(void);
+    void _enableOvfInt(void);
+    void _disableOvfInt(void);
     void move(bool direction, uint16_t steps);
     void move(bool direction);
     void step(bool direction);
@@ -59,12 +59,14 @@ class DRV8885 {
     int8_t _enable_pin;
     int16_t _prescaler;
     uint16_t _top_value;
-    bool _moving;
+    bool _moving, manual;
+    volatile uint32_t _count;
+    volatile uint32_t _stop_count;
 
   private:
     void tcc0Setup(void);
     void stepPinSetup(void);
-    uint32_t readCount(void);
+    uint32_t readTCCCount(void);
     int8_t _direction_pin, _sleep_pin, _m0_pin, _m1_pin, _trq_pin, _fault_pin;
     bool _direction;
     MicroStepMode _stepping;
